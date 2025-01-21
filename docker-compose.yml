@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./final_be
+    ports:
+      - '4000:4000'
+    env_file:
+      - ./final_be/.env
+    volumes:
+      - ./final_be:/usr/src/app
+      - /usr/src/app/node_modules
+    command: ['node', 'app.js']
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    networks:
+      - app-network # 네트워크 연결
+
+  frontend:
+    build:
+      context: ./final_fe
+    env_file:
+      - ./final_fe/.env
+    ports:
+      - '8080:80'
+    volumes:
+      - ./final_fe:/usr/src/app
+      - /usr/src/app/node_modules
+    command: ['npm', 'run', 'build']
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    networks:
+      - app-network # 네트워크 연결
+
+  admin:
+    build:
+      context: ./final_admin
+    env_file:
+      - ./final_admin/.env
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./final_admin:/usr/src/app
+      - /usr/src/app/node_modules
+    command: ['npm', 'run', 'build']
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    networks:
+      - app-network # 네트워크 연결
+
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   container_name: rabbitmq
+  #   ports:
+  #     - '5672:5672'
+  #     - '15672:15672'
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: celebright
+  #     RABBITMQ_DEFAULT_PASS: kosta285
+  #   restart: unless-stopped
+  #   networks:
+  #     - app-network # 네트워크 연결
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - '80:80'
+    volumes:
+      - ./final_fe/build:/usr/share/nginx/html
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    entrypoint: /bin/sh -c "while ! [ -f /usr/share/nginx/html/index.html ]; do echo 'Waiting for frontend build...'; sleep 2; done; exec nginx -g 'daemon off;'"
+    networks:
+      - app-network # 네트워크 연결
+
+networks:
+  app-network: # 사용자 정의 네트워크
+    driver: bridge

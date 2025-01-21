@@ -1,0 +1,118 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 코드 체크아웃
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. PEM 파일 생성
+      - name: Create PEM file
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/newCelebrightEc2Key.pem
+          chmod 600 /tmp/newCelebrightEc2Key.pem
+
+      # 3. React (final_fe) 프로젝트용 .env 파일 생성
+      - name: Create .env for final_fe
+        run: |
+          echo "REACT_APP_API_URL=${{ secrets.REACT_APP_API_URL }}" > final_fe/.env
+          # 추가 환경 변수 필요 시, 여기에 추가
+
+      # 4. Express (final_be) 프로젝트용 .env 파일 생성
+      - name: Create .env for final_be
+        run: |
+          echo "DB_HOST=${{ secrets.DB_HOST }}" >> final_be/.env
+          echo "DB_USER=${{ secrets.DB_USER }}" >> final_be/.env
+          echo "DB_PW=${{ secrets.DB_PW }}" >> final_be/.env
+          echo "DB_NAME=${{ secrets.DB_NAME }}" >> final_be/.env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> final_be/.env
+          echo "JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}" >> final_be/.env
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> final_be/.env
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> final_be/.env
+          echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> final_be/.env
+          echo "AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}" >> final_be/.env
+          echo "AWS_BUCKET_FOLDER_NAME=${{ secrets.AWS_BUCKET_FOLDER_NAME }}" >> final_be/.env
+          echo "KAKAO_CLIENT_ID=${{ secrets.KAKAO_CLIENT_ID }}" >> final_be/.env
+          echo "KAKAO_CALLBACK_URL=${{ secrets.KAKAO_CALLBACK_URL }}" >> final_be/.env
+          echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" >> final_be/.env
+          echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> final_be/.env
+          echo "GOOGLE_REDIRECT_URL=${{ secrets.GOOGLE_REDIRECT_URL }}" >> final_be/.env
+          echo "TOSS_SECRET_KEY=${{ secrets.TOSS_SECRET_KEY }}" >> final_be/.env
+          echo "TOSS_SECURITY_KEY=${{ secrets.TOSS_SECURITY_KEY }}" >> final_be/.env
+          echo "RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}" >> final_be/.env
+          echo "RABBITMQ_QUEUE=${{ secrets.RABBITMQ_QUEUE }}" >> final_be/.env
+
+      # 5. Admin (final_admin) 프로젝트용 .env 파일 생성
+      - name: Create .env for final_admin
+        run: |
+          echo "REACT_APP_ID=${{ secrets.REACT_APP_ID }}" > final_admin/.env
+          echo "REACT_APP_PW=${{ secrets.REACT_APP_PW }}" >> final_admin/.env
+
+      # 6. EC2에 디렉토리 생성
+      - name: Create directories on EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo mkdir -p /home/ubuntu/app/final_fe
+            sudo mkdir -p /home/ubuntu/app/final_be
+            sudo mkdir -p /home/ubuntu/app/final_admin
+            sudo chown -R ubuntu:ubuntu /home/ubuntu/app
+            sudo chmod -R 755 /home/ubuntu/app
+
+      # 7. EC2에 파일 복사
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: '.'
+          target: '/home/ubuntu/app'
+          extra_args: "-r --exclude='.git/*'"
+
+      # 8. EC2에서 파일 확인
+      - name: List files on EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            ls -l /home/ubuntu/app
+
+      # 9. EC2에서 Docker Compose 실행
+      - name: SSH into EC2 and run Docker Compose
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ubuntu/app
+            export COMPOSE_HTTP_TIMEOUT=200
+            cp /home/ubuntu/app/final_fe/.env /home/ubuntu/app
+            cp /home/ubuntu/app/final_be/.env /home/ubuntu/app
+            cp /home/ubuntu/app/final_admin/.env /home/ubuntu/app
+            sudo docker-compose down || true
+            sudo docker-compose up --build -d --verbose
+
+      # 10. Docker 컨테이너 상태 확인
+      - name: Verify Docker containers are running
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo docker ps -a

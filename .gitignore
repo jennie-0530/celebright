@@ -1,0 +1,5 @@
+final_be/package-lock.json
+final_fe/package-lock.json
+package-lock.json
+.env
+.DS_Store
